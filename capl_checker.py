@@ -156,7 +156,7 @@ class CAPLChecker:
             self.current_line = i
             self._check_line_length(line, i)
             self._check_trailing_whitespace(line, i)
-            self._check_syntax_errors(line, i)
+            self._check_line_syntax_errors(line, i)  # 只检查单行语法错误
             self._check_variable_declaration(line, i)
             self._check_function_declaration(line, i)
             self._check_undefined_variables(line, i)
@@ -167,6 +167,7 @@ class CAPLChecker:
         
         # 全局检查
         self._check_global_issues(processed_lines)
+        self._check_brace_matching(processed_lines)  # 全局大括号匹配检查
         
         return self.issues
 
@@ -221,26 +222,19 @@ class CAPLChecker:
             self.add_issue(line_num, len(line.rstrip()) + 1, self._get_severity('style'),
                           "Trailing whitespace", "trailing-whitespace")
 
-    def _check_syntax_errors(self, line: str, line_num: int):
-        """检查基本语法错误"""
+    def _check_line_syntax_errors(self, line: str, line_num: int):
+        """检查单行语法错误"""
         if not self._is_rule_enabled('syntax'):
             return
             
         stripped = line.strip()
         
-        # 检查括号匹配
+        # 检查括号匹配（只在单行内）
         open_parens = stripped.count('(')
         close_parens = stripped.count(')')
         if open_parens != close_parens:
             self.add_issue(line_num, 0, self._get_severity('syntax'),
                           "Mismatched parentheses", "mismatched-parentheses")
-        
-        # 检查大括号匹配
-        open_braces = stripped.count('{')
-        close_braces = stripped.count('}')
-        if open_braces != close_braces:
-            self.add_issue(line_num, 0, self._get_severity('syntax'),
-                          "Mismatched braces", "mismatched-braces")
         
         # 检查分号
         if (stripped and not stripped.endswith((';', '{', '}', ':', '\\')) 
@@ -454,6 +448,30 @@ class CAPLChecker:
         if 'on start' not in content and 'on preStart' not in content:
             self.add_issue(1, 0, Severity.INFO,
                           "No startup event handler found", "no-startup-handler")
+
+    def _check_brace_matching(self, lines: List[str]):
+        """检查大括号匹配"""
+        if not self._is_rule_enabled('syntax'):
+            return
+            
+        brace_stack = []  # 存储开括号的位置
+        
+        for line_num, line in enumerate(lines, 1):
+            for col, char in enumerate(line):
+                if char == '{':
+                    brace_stack.append((line_num, col))
+                elif char == '}':
+                    if not brace_stack:
+                        # 多余的闭括号
+                        self.add_issue(line_num, col, self._get_severity('syntax'),
+                                      "Unmatched closing brace", "unmatched-closing-brace")
+                    else:
+                        brace_stack.pop()
+        
+        # 检查未匹配的开括号
+        for line_num, col in brace_stack:
+            self.add_issue(line_num, col, self._get_severity('syntax'),
+                          "Unmatched opening brace", "unmatched-opening-brace")
 
     def add_issue(self, line_num: int, column: int, severity: Severity, message: str, rule_id: str):
         """添加问题到列表"""
