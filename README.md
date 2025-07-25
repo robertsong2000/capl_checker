@@ -27,6 +27,9 @@ python capl_checker.py sample.can
 # 检查多个文件
 python capl_checker.py file1.can file2.can file3.can
 
+# 使用自定义配置文件
+python capl_checker.py --config my_config.conf sample.can
+
 # 指定输出格式
 python capl_checker.py --format xml sample.can
 python capl_checker.py --format json sample.can
@@ -44,6 +47,7 @@ python capl_checker.py --quiet sample.can
 - `--format`: 输出格式，可选 text、xml、json（默认：text）
 - `--output`, `-o`: 输出文件路径（默认：标准输出）
 - `--quiet`, `-q`: 静默模式，不显示进度信息
+- `--config`: 配置文件路径（默认：capl_checker.conf）
 
 ## 检查规则
 
@@ -115,14 +119,82 @@ Summary: 1 errors, 2 warnings, 3 info, 5 style issues
 
 ## 配置
 
-可以通过 `capl_checker.conf` 文件配置检查规则和设置。配置文件包含以下部分：
+可以通过配置文件（默认：`capl_checker.conf`）配置检查规则和设置。配置文件使用INI格式，支持以下部分：
 
-- `[rules]`: 启用/禁用规则类别
-- `[style]`: 代码风格设置
-- `[capl_specific]`: CAPL特定规则设置
-- `[exclusions]`: 排除文件和规则
-- `[magic_numbers]`: 魔法数字设置
-- `[output]`: 输出格式设置
+### [rules] 部分
+控制启用的规则类别及其严重性级别：
+```ini
+[rules]
+enable_syntax_checks = true
+enable_style_checks = true
+enable_naming_checks = true
+enable_capl_specific_checks = true
+enable_magic_number_checks = true
+
+syntax_severity = error
+style_severity = style
+naming_severity = style
+capl_specific_severity = warning
+magic_number_severity = info
+```
+
+### [style] 部分
+配置代码风格偏好：
+```ini
+[style]
+max_line_length = 120
+indent_size = 4
+use_tabs = false
+variable_naming = camelCase    # camelCase 或 snake_case
+function_naming = camelCase    # camelCase 或 snake_case
+constant_naming = UPPER_CASE
+signal_naming = PascalCase
+```
+
+### [capl_specific] 部分
+CAPL特定检查设置：
+```ini
+[capl_specific]
+require_variables_block = true
+require_startup_handler = false
+check_signal_names = true
+check_message_handlers = true
+check_timer_usage = true
+```
+
+### [magic_numbers] 部分
+配置允许的魔法数字：
+```ini
+[magic_numbers]
+allowed_numbers = 0, 1, -1, 2, 10, 100, 1000
+```
+
+### [output] 部分
+输出格式选项：
+```ini
+[output]
+default_format = text
+show_rule_ids = true
+show_columns = true
+use_colors = true
+```
+
+### 自定义配置示例
+创建自定义配置文件以禁用风格检查：
+```ini
+[rules]
+enable_style_checks = false
+enable_magic_number_checks = false
+
+[style]
+variable_naming = snake_case
+function_naming = snake_case
+```
+
+然后使用：
+```bash
+python capl_checker.py --config custom.conf sample.can
+```
 
 ## 示例
 

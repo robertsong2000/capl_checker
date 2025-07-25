@@ -9,6 +9,7 @@ import re
 import os
 import sys
 import argparse
+import configparser
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -32,12 +33,15 @@ class Issue:
 
 
 class CAPLChecker:
-    def __init__(self):
+    def __init__(self, config_file: str = "capl_checker.conf"):
         self.issues: List[Issue] = []
         self.variables: Dict[str, str] = {}  # variable_name -> type
         self.functions: Dict[str, Dict] = {}  # function_name -> {return_type, params}
         self.current_file = ""
         self.current_line = 0
+        
+        # 加载配置
+        self.config = self._load_config(config_file)
         
         # CAPL keywords
         self.keywords = {
@@ -58,6 +62,72 @@ class CAPLChecker:
             'testWaitForSignalMatch', 'testStepPass', 'testStepFail',
             'setTimer', 'cancelTimer', 'isTimerActive'
         }
+
+    def _load_config(self, config_file: str) -> configparser.ConfigParser:
+        """加载配置文件"""
+        config = configparser.ConfigParser()
+        
+        # 设置默认值
+        config.read_dict({
+            'rules': {
+                'enable_syntax_checks': 'true',
+                'enable_style_checks': 'true',
+                'enable_naming_checks': 'true',
+                'enable_capl_specific_checks': 'true',
+                'enable_magic_number_checks': 'true',
+                'syntax_severity': 'error',
+                'style_severity': 'style',
+                'naming_severity': 'style',
+                'capl_specific_severity': 'warning',
+                'magic_number_severity': 'info'
+            },
+            'style': {
+                'max_line_length': '120',
+                'indent_size': '4',
+                'use_tabs': 'false',
+                'variable_naming': 'camelCase',
+                'function_naming': 'camelCase',
+                'constant_naming': 'UPPER_CASE',
+                'signal_naming': 'PascalCase'
+            },
+            'capl_specific': {
+                'require_variables_block': 'true',
+                'require_startup_handler': 'false',
+                'check_signal_names': 'true',
+                'check_message_handlers': 'true',
+                'check_timer_usage': 'true'
+            },
+            'magic_numbers': {
+                'allowed_numbers': '0, 1, -1, 2, 10, 100, 1000'
+            },
+            'output': {
+                'default_format': 'text',
+                'show_rule_ids': 'true',
+                'show_columns': 'true',
+                'use_colors': 'true'
+            }
+        })
+        
+        # 尝试读取配置文件
+        if os.path.exists(config_file):
+            try:
+                config.read(config_file)
+            except Exception as e:
+                print(f"Warning: Could not read config file {config_file}: {e}", file=sys.stderr)
+        
+        return config
+
+    def _is_rule_enabled(self, rule_category: str) -> bool:
+        """检查规则类别是否启用"""
+        return self.config.getboolean('rules', f'enable_{rule_category}_checks', fallback=True)
+
+    def _get_severity(self, rule_category: str) -> Severity:
+        """获取规则类别的严重程度"""
+        severity_str = self.config.get('rules', f'{rule_category}_severity', fallback='warning')
+        try:
+            return Severity(severity_str)
+        except ValueError:
+            return Severity.WARNING
 
     def check_file(self, file_path: str) -> List[Issue]:
         """检查单个CAPL文件"""
@@ -134,32 +204,42 @@ class CAPLChecker:
 
     def _check_line_length(self, line: str, line_num: int):
         """检查行长度"""
-        if len(line.rstrip()) > 120:
-            self.add_issue(line_num, len(line.rstrip()), Severity.STYLE,
-                          "Line too long (>120 characters)", "line-too-long")
+        if not self._is_rule_enabled('style'):
+            return
+            
+        max_length = self.config.getint('style', 'max_line_length', fallback=120)
+        if len(line.rstrip()) > max_length:
+            self.add_issue(line_num, len(line.rstrip()), self._get_severity('style'),
+                          f"Line too long ({len(line.rstrip())} > {max_length} characters)", "line-too-long")
 
     def _check_trailing_whitespace(self, line: str, line_num: int):
         """检查行尾空白"""
-        if line.rstrip() != line.rstrip('\n').rstrip('\r'):
-            self.add_issue(line_num, len(line.rstrip()), Severity.STYLE,
+        if not self._is_rule_enabled('style'):
+            return
+            
+        if line.rstrip() != line:
+            self.add_issue(line_num, len(line.rstrip()) + 1, self._get_severity('style'),
                           "Trailing whitespace", "trailing-whitespace")
 
     def _check_syntax_errors(self, line: str, line_num: int):
         """检查基本语法错误"""
+        if not self._is_rule_enabled('syntax'):
+            return
+            
         stripped = line.strip()
         
         # 检查括号匹配
         open_parens = stripped.count('(')
         close_parens = stripped.count(')')
         if open_parens != close_parens:
-            self.add_issue(line_num, 0, Severity.ERROR,
+            self.add_issue(line_num, 0, self._get_severity('syntax'),
                           "Mismatched parentheses", "mismatched-parentheses")
         
         # 检查大括号匹配
         open_braces = stripped.count('{')
         close_braces = stripped.count('}')
         if open_braces != close_braces:
-            self.add_issue(line_num, 0, Severity.ERROR,
+            self.add_issue(line_num, 0, self._get_severity('syntax'),
                           "Mismatched braces", "mismatched-braces")
         
         # 检查分号
@@ -167,7 +247,7 @@ class CAPLChecker:
             and not stripped.startswith(('#', 'on ', 'variables', 'includes'))
             and not any(keyword in stripped for keyword in ['if', 'else', 'while', 'for', 'do', 'switch', 'case'])):
             if not re.match(r'^\s*(//|/\*|\*)', stripped):
-                self.add_issue(line_num, len(stripped), Severity.WARNING,
+                self.add_issue(line_num, len(stripped), self._get_severity('syntax'),
                               "Missing semicolon", "missing-semicolon")
 
     def _check_variable_declaration(self, line: str, line_num: int):
@@ -246,20 +326,56 @@ class CAPLChecker:
 
     def _check_magic_numbers(self, line: str, line_num: int):
         """检查魔法数字"""
-        # 查找数字常量（排除0, 1, -1）
-        number_pattern = r'\b(?<![\w.])((?:[2-9]|[1-9]\d+)(?:\.\d+)?)\b(?![\w.])'
-        matches = re.finditer(number_pattern, line)
+        if not self._is_rule_enabled('magic_number'):
+            return
+            
+        # 获取允许的数字
+        allowed_str = self.config.get('magic_numbers', 'allowed_numbers', fallback='0, 1, -1, 2, 10, 100, 1000')
+        allowed_numbers = {num.strip() for num in allowed_str.split(',')}
         
-        for match in matches:
+        # 查找数字
+        number_pattern = r'\b(-?\d+(?:\.\d+)?)\b'
+        for match in re.finditer(number_pattern, line):
             number = match.group(1)
-            # 排除一些常见的非魔法数字
-            if number not in ['2', '10', '100', '1000']:
-                self.add_issue(line_num, match.start(1), Severity.INFO,
-                              f"Magic number '{number}' should be replaced with named constant",
-                              "magic-number")
+            if number not in allowed_numbers:
+                # 检查是否在注释中
+                comment_pos = line.find('//')
+                if comment_pos == -1 or match.start() < comment_pos:
+                    self.add_issue(line_num, match.start(), self._get_severity('magic_number'),
+                                  f"Magic number '{number}' should be replaced with a named constant", "magic-number")
 
     def _check_naming_conventions(self, line: str, line_num: int):
         """检查命名规范"""
+        if not self._is_rule_enabled('naming'):
+            return
+            
+        # 检查变量命名
+        var_pattern = r'\b(int|long|float|double|char|byte|word|dword|qword)\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+        for match in re.finditer(var_pattern, line):
+            var_name = match.group(2)
+            naming_style = self.config.get('style', 'variable_naming', fallback='camelCase')
+            
+            if naming_style == 'camelCase' and not self._is_camel_case(var_name):
+                self.add_issue(line_num, match.start(2), self._get_severity('naming'),
+                              f"Variable '{var_name}' should use camelCase", "naming-convention")
+            elif naming_style == 'snake_case' and not self._is_snake_case(var_name):
+                self.add_issue(line_num, match.start(2), self._get_severity('naming'),
+                              f"Variable '{var_name}' should use snake_case", "naming-convention")
+        
+        # 检查函数命名
+        func_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\('
+        for match in re.finditer(func_pattern, line):
+            func_name = match.group(1)
+            if func_name not in self.keywords and func_name not in self.builtin_functions:
+                naming_style = self.config.get('style', 'function_naming', fallback='camelCase')
+                
+                if naming_style == 'camelCase' and not self._is_camel_case(func_name):
+                    self.add_issue(line_num, match.start(1), self._get_severity('naming'),
+                                  f"Function '{func_name}' should use camelCase", "naming-convention")
+                elif naming_style == 'snake_case' and not self._is_snake_case(func_name):
+                    self.add_issue(line_num, match.start(1), self._get_severity('naming'),
+                                  f"Function '{func_name}' should use snake_case", "naming-convention")
+        
         # 检查常量命名（应该全大写）
         const_pattern = r'\b(const\s+\w+\s+)([a-zA-Z_][a-zA-Z0-9_]*)'
         match = re.search(const_pattern, line)
@@ -269,27 +385,61 @@ class CAPLChecker:
                 self.add_issue(line_num, match.start(2), Severity.STYLE,
                               f"Constant '{const_name}' should be UPPER_CASE", "naming-convention")
 
+    def _is_camel_case(self, name: str) -> bool:
+        """检查是否为驼峰命名"""
+        return re.match(r'^[a-z][a-zA-Z0-9]*$', name) is not None
+
+    def _is_snake_case(self, name: str) -> bool:
+        """检查是否为下划线命名"""
+        return re.match(r'^[a-z][a-z0-9_]*$', name) is not None
+
     def _check_capl_specific_issues(self, line: str, line_num: int):
         """检查CAPL特定的问题"""
-        # 检查on message事件处理
-        if re.search(r'\bon\s+message\s+\w+', line):
-            if not re.search(r'\{', line) and not any('{' in next_line for next_line in [line]):
-                self.add_issue(line_num, 0, Severity.WARNING,
-                              "on message handler should have implementation", "empty-message-handler")
+        if not self._is_rule_enabled('capl_specific'):
+            return
+            
+        # 检查setTimer使用
+        if self.config.getboolean('capl_specific', 'check_timer_usage', fallback=True):
+            if 'setTimer' in line:
+                # 检查setTimer的参数
+                timer_pattern = r'setTimer\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)'
+                match = re.search(timer_pattern, line)
+                if match:
+                    timer_name = match.group(1).strip()
+                    timer_value = match.group(2).strip()
+                    
+                    # 检查定时器名称是否有效
+                    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', timer_name):
+                        self.add_issue(line_num, match.start(1), self._get_severity('capl_specific'),
+                                      f"Invalid timer name '{timer_name}'", "invalid-timer-name")
+                    
+                    # 检查定时器值是否为数字
+                    if not re.match(r'^\d+(\.\d+)?$', timer_value):
+                        self.add_issue(line_num, match.start(2), self._get_severity('capl_specific'),
+                                      f"Timer value should be numeric, got '{timer_value}'", "invalid-timer-value")
         
-        # 检查timer使用
-        if 'setTimer' in line:
-            if not re.search(r'setTimer\s*\(\s*\w+\s*,\s*\d+\s*\)', line):
-                self.add_issue(line_num, line.find('setTimer'), Severity.WARNING,
-                              "setTimer should have timer name and duration", "invalid-timer-usage")
+        # 检查on message处理器
+        if self.config.getboolean('capl_specific', 'check_message_handlers', fallback=True):
+            if line.strip().startswith('on message'):
+                # 检查消息处理器格式
+                if not re.match(r'on\s+message\s+[a-zA-Z_][a-zA-Z0-9_]*\s*{?', line.strip()):
+                    self.add_issue(line_num, 0, self._get_severity('capl_specific'),
+                                  "Invalid message handler format", "invalid-message-handler")
         
-        # 检查signal访问
-        if re.search(r'\$\w+', line):
-            signal_match = re.search(r'\$(\w+)', line)
-            if signal_match:
-                signal_name = signal_match.group(1)
-                # 这里可以添加信号名称验证逻辑
-                pass
+        # 检查信号名称
+        if self.config.getboolean('capl_specific', 'check_signal_names', fallback=True):
+            signal_pattern = r'\$([a-zA-Z_][a-zA-Z0-9_]*)'
+            for match in re.finditer(signal_pattern, line):
+                signal_name = match.group(1)
+                naming_style = self.config.get('style', 'signal_naming', fallback='PascalCase')
+                
+                if naming_style == 'PascalCase' and not self._is_pascal_case(signal_name):
+                    self.add_issue(line_num, match.start(), self._get_severity('capl_specific'),
+                                  f"Signal '{signal_name}' should use PascalCase", "signal-naming")
+
+    def _is_pascal_case(self, name: str) -> bool:
+        """检查是否为帕斯卡命名"""
+        return re.match(r'^[A-Z][a-zA-Z0-9]*$', name) is not None
 
     def _check_global_issues(self, lines: List[str]):
         """检查全局问题"""
@@ -385,10 +535,12 @@ def main():
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
     parser.add_argument('--quiet', '-q', action='store_true',
                        help='Suppress progress messages')
+    parser.add_argument('--config', '-c', default='capl_checker.conf',
+                       help='Configuration file (default: capl_checker.conf)')
     
     args = parser.parse_args()
     
-    checker = CAPLChecker()
+    checker = CAPLChecker(config_file=args.config)
     all_issues = []
     
     for file_path in args.files:
