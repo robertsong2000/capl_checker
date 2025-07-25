@@ -485,13 +485,13 @@ class CAPLChecker:
         )
         self.issues.append(issue)
 
-    def format_issues(self, format_type: str = "text") -> str:
+    def format_issues(self, format_type: str = "txt") -> str:
         """格式化输出问题"""
         if format_type == "xml":
             return self._format_xml()
         elif format_type == "json":
             return self._format_json()
-        else:
+        else:  # txt 或 text 格式都使用文本输出
             return self._format_text()
 
     def _format_text(self) -> str:
@@ -548,7 +548,7 @@ class CAPLChecker:
 def main():
     parser = argparse.ArgumentParser(description='CAPL Static Syntax Checker')
     parser.add_argument('files', nargs='+', help='CAPL files to check')
-    parser.add_argument('--format', choices=['text', 'xml', 'json'], default='text',
+    parser.add_argument('--format', choices=['txt', 'xml', 'json'], default='txt',
                        help='Output format')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
     parser.add_argument('--quiet', '-q', action='store_true',
