@@ -1,0 +1,180 @@
+/*
+ * Sample CAPL file for testing the syntax checker
+ * This file contains various CAPL constructs and some intentional issues
+ */
+
+includes
+{
+  // Include necessary files
+}
+
+variables
+{
+  // Global variables
+  int gCounter = 0;
+  float gTemperature;
+  char gBuffer[256];
+  
+  // Timer declarations
+  timer tPeriodicTimer;
+  timer tTimeoutTimer;
+  
+  // Message variables
+  message Engine_Data msg_engine;
+  message 0x123 msg_test;
+  
+  // Some issues for testing
+  int BadVariableName;  // Should be camelCase
+  int unused_var;       // Unused variable
+}
+
+// Function declarations
+void initializeSystem()
+{
+  gCounter = 0;
+  gTemperature = 25.5;
+  
+  // Start periodic timer
+  setTimer(tPeriodicTimer, 1000);
+  
+  writeToLog("System initialized");
+}
+
+int calculateValue(int input)
+{
+  int result;
+  
+  if (input > 100)  // Magic number
+  {
+    result = input * 2.5;  // Another magic number
+  }
+  else
+  {
+    result = input + 42;   // Magic number
+  }
+  
+  return result;
+}
+
+// Event handlers
+on start
+{
+  writeToLog("Application started");
+  initializeSystem();
+  
+  // Set some signals
+  $EngineSpeed = 0;
+  $VehicleSpeed = 0.0;
+}
+
+on timer tPeriodicTimer
+{
+  gCounter++;
+  
+  // Update signals
+  $EngineSpeed = gCounter * 10;
+  $VehicleSpeed = gCounter * 0.5;
+  
+  // Restart timer
+  setTimer(tPeriodicTimer, 1000);
+  
+  // Some syntax issues for testing
+  if (gCounter > 50)
+    writeToLog("Counter exceeded 50")  // Missing semicolon
+  
+  // Mismatched parentheses for testing
+  if (gCounter > 100 {
+    gCounter = 0;
+  }
+}
+
+on message Engine_Data
+{
+  // Process engine data message
+  int rpm = this.EngineRPM;
+  float temp = this.CoolantTemp;
+  
+  if (rpm > 6000)
+  {
+    writeToLog("High RPM detected: %d", rpm);
+  }
+  
+  // Update global temperature
+  gTemperature = temp;
+}
+
+on message 0x123
+{
+  // Handle message with ID 0x123
+  byte data[8];
+  int i;
+  
+  for (i = 0; i < this.dlc; i++)
+  {
+    data[i] = this.byte(i);
+  }
+  
+  // Process data
+  output("Received message 0x123 with %d bytes", this.dlc);
+}
+
+on key 'a'
+{
+  writeToLog("Key 'a' pressed");
+  
+  // Reset counter
+  gCounter = 0;
+  
+  // Cancel timer if active
+  if (isTimerActive(tTimeoutTimer))
+  {
+    cancelTimer(tTimeoutTimer);
+  }
+}
+
+on signal EngineSpeed
+{
+  // React to engine speed signal changes
+  if ($EngineSpeed > 5000)
+  {
+    writeToLog("High engine speed: %.1f", $EngineSpeed);
+    
+    // Set timeout timer
+    setTimer(tTimeoutTimer, 5000);
+  }
+}
+
+// Utility function with some issues
+void processData(byte data[], int length)
+{
+  int i;
+  long sum = 0;
+  
+  // Line too long for testing: this is a very long line that exceeds the maximum line length limit and should trigger a style warning
+  
+  for (i = 0; i < length; i++)
+  {
+    sum += data[i];
+  }
+  
+  // Trailing whitespace on next line   
+  writeToLog("Data sum: %ld", sum);
+  
+  // Undefined variable usage
+  undefinedVar = sum;
+  
+  // Function call with wrong parameters
+  setTimer();  // Missing parameters
+}
+
+on stopMeasurement
+{
+  writeToLog("Measurement stopped");
+  
+  // Cancel all timers
+  cancelTimer(tPeriodicTimer);
+  cancelTimer(tTimeoutTimer);
+  
+  // Final output
+  output("Final counter value: %d", gCounter);
+}
