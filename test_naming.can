@@ -1,0 +1,13 @@
+variables {
+    int testVariable;  // 使用snake_case测试
+    int test_variable; // 正确的snake_case
+}
+
+void testFunction() {  // 使用snake_case测试
+    int magicNumber = 42;  // 应该被允许的魔法数字
+    int badMagicNumber = 999;  // 不在允许列表中的数字
+}
+
+void test_function() {  // 正确的snake_case
+    write("Hello World");
+}
