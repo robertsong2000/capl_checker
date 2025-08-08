@@ -223,26 +223,48 @@ class CAPLChecker:
                           "Trailing whitespace", "trailing-whitespace")
 
     def _check_line_syntax_errors(self, line: str, line_num: int):
-        """检查单行语法错误"""
+        """检查语法错误，包括分号缺失"""
         if not self._is_rule_enabled('syntax'):
             return
             
         stripped = line.strip()
+        if not stripped:
+            return
+            
+        # 跳过注释行
+        if stripped.startswith('//'):
+            return
+            
+        # 检查分号缺失
+        # 跳过特定的情况，不需要分号
+        should_skip_semicolon = (
+            # 跳过函数定义
+            re.match(r'.*\)\s*\{?$', stripped) or
+            # 跳过TestCase函数定义
+            stripped.startswith('TestCase ') or
+            # 跳过控制结构
+            any(keyword in stripped for keyword in ['if', 'else', 'while', 'for', 'do', 'switch', 'case', 'default']) or
+            # 跳过预处理器指令
+            stripped.startswith('#') or
+            # 跳过块的开始和结束
+            stripped in ['{', '}', '};'] or
+            # 跳过行继续符
+            stripped.endswith('\\') or
+            # 跳过枚举/结构体/联合体定义
+            re.search(r'\b(enum|struct|union)\s+\w+\s*\{', stripped) or
+            # 跳过枚举值定义
+            re.match(r'^\s*\w+\s*,?\s*$', stripped) or
+            # 跳过结构体/枚举成员定义
+            re.search(r'\b(int|long|float|double|char|byte|word|dword|qword)\s+\w+[,;]?$', stripped) or
+            # 跳过以这些字符结尾的行
+            stripped.endswith((';', '{', '}', ':', '\\')) or
+            # 跳过包含这些关键字的行
+            any(keyword in stripped for keyword in ['variables', 'includes', 'on message', 'on key', 'on start', 'on stop'])
+        )
         
-        # 检查括号匹配（只在单行内）
-        open_parens = stripped.count('(')
-        close_parens = stripped.count(')')
-        if open_parens != close_parens:
-            self.add_issue(line_num, 0, self._get_severity('syntax'),
-                          "Mismatched parentheses", "mismatched-parentheses")
-        
-        # 检查分号
-        if (stripped and not stripped.endswith((';', '{', '}', ':', '\\')) 
-            and not stripped.startswith(('#', 'on ', 'variables', 'includes'))
-            and not any(keyword in stripped for keyword in ['if', 'else', 'while', 'for', 'do', 'switch', 'case'])):
-            if not re.match(r'^\s*(//|/\*|\*)', stripped):
-                self.add_issue(line_num, len(stripped), self._get_severity('syntax'),
-                              "Missing semicolon", "missing-semicolon")
+        if not should_skip_semicolon and not re.match(r'^\s*(//|/\*|\*)', stripped):
+            self.add_issue(line_num, len(stripped), self._get_severity('syntax'),
+                          "Missing semicolon", "missing-semicolon")
 
     def _check_variable_declaration(self, line: str, line_num: int):
         """检查变量声明"""
