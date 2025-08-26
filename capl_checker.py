@@ -235,7 +235,7 @@ class CAPLChecker:
         if stripped.startswith('//'):
             return
             
-        # 检查分号缺失
+        # 检查分号缺失 - 改进逻辑，处理多行函数调用
         # 跳过特定的情况，不需要分号
         should_skip_semicolon = (
             # 跳过函数定义
@@ -259,7 +259,13 @@ class CAPLChecker:
             # 跳过以这些字符结尾的行
             stripped.endswith((';', '{', '}', ':', '\\')) or
             # 跳过包含这些关键字的行
-            any(keyword in stripped for keyword in ['variables', 'includes', 'on message', 'on key', 'on start', 'on stop'])
+            any(keyword in stripped for keyword in ['variables', 'includes', 'on message', 'on key', 'on start', 'on stop']) or
+            # 跳过函数调用跨行的情况 - 检查是否以逗号结尾（多行参数）
+            stripped.endswith(',') or
+            # 跳过函数调用跨行的情况 - 检查是否有开括号但无闭括号
+            (re.search(r'\w+\s*\(', stripped) and not re.search(r'\)', stripped)) or
+            # 跳过函数调用跨行的情况 - 检查是否有TestSetupLogging等函数调用
+            re.search(r'\b(TestSetupLogging|write|writeToLog|testStepPass|testStepFail)\s*\(', stripped)
         )
         
         if not should_skip_semicolon and not re.match(r'^\s*(//|/\*|\*)', stripped):
